@@ -223,7 +223,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <!-- task modal -->
 <div class="overlay" id="overlay">
 <div class="modal">
-  <h3>新建任务</h3>
+  <h3 id="task-modal-title">新建任务</h3>
   <div class="mf"><label>任务名称</label><input id="m-name" placeholder="输入任务名称…" /></div>
   <div class="mf"><label>所属项目</label><select id="m-proj"></select></div>
   <div class="mrow">
@@ -234,12 +234,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="mf"><label>开始（周）</label><input id="m-start" type="number" min="1" max="20" value="1" /></div>
     <div class="mf"><label>持续（周）</label><input id="m-dur" type="number" min="1" max="10" value="2" /></div>
   </div>
+  <div class="mf"><label>状态</label><select id="m-status"><option value="todo">待处理</option><option value="progress">开发中</option><option value="review">待审核</option><option value="done">已完成</option></select></div>
   <div class="mf"><label>截止日期</label><input id="m-date" type="date" /></div>
   <div class="mf"><label>前置任务（任务编号，逗号分隔）</label><input id="m-dep" placeholder="例如：1,3" /></div>
   <div class="mf"><label>备注</label><textarea id="m-note" placeholder="补充说明…"></textarea></div>
   <div class="mactions">
+    <button class="m-danger" id="task-del-btn" style="display:none;margin-right:auto" onclick="deleteTask()"><i class="ti ti-trash" style="font-size:13px"></i> 删除</button>
     <button class="m-cancel" onclick="closeModal()">取消</button>
-    <button class="m-ok" onclick="addTask()">创建任务</button>
+    <button class="m-ok" id="task-save-btn" onclick="saveTask()">创建任务</button>
   </div>
 </div>
 </div>
@@ -339,8 +341,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 // ═══════════════════════════════════════════════
 //  ⚙️  填入你的 Supabase 信息（第一步必做）
 // ═══════════════════════════════════════════════
-const SUPABASE_URL = 'https://cklkpjxplneidcccbgpb.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNrbGtwanhwbG5laWRjY2NiZ3BiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3NDk4NjcsImV4cCI6MjA5NTMyNTg2N30.DMf8CS0NMgBVE5B2MSrhVTefbmKQQtI5n0JD3oDsjnc';
+const SUPABASE_URL = '在这里填入你的 Project URL';
+const SUPABASE_KEY = '在这里填入你的 anon public key';
 // ═══════════════════════════════════════════════
 
 const TOTAL_WEEKS=16, NAME_W=170;
@@ -529,17 +531,19 @@ function renderKanban(){
   const colNames={todo:'待处理',progress:'开发中',review:'待审核',done:'已完成'};
   const colBadge={todo:'kb-todo',progress:'kb-progress',review:'kb-review',done:'kb-done'};
   const colIcon={todo:'ti-circle',progress:'ti-loader',review:'ti-eye',done:'ti-circle-check'};
-  let html=statsHTML()+'<div class="section-hd" style="margin-bottom:14px">任务看板 <span style="font-size:10px;color:var(--text3)">— 点击任务卡片推进状态</span></div><div class="kanban">';
+  let html=statsHTML()+'<div class="section-hd" style="margin-bottom:14px">任务看板 <span style="font-size:10px;color:var(--text3)">— 点击卡片编辑，点击状态标签推进</span></div><div class="kanban">';
   cols.forEach(s=>{
     const ts=vis.filter(t=>t.status===s);
     html+=`<div class="kol"><div class="kol-hd"><div class="kol-title"><i class="ti ${colIcon[s]}" style="font-size:14px"></i>${colNames[s]}<span class="kol-badge ${colBadge[s]}">${ts.length}</span></div></div>`;
     if(!ts.length) html+=`<div class="empty-kol"><i class="ti ti-inbox" style="font-size:22px;opacity:.3"></i><div style="margin-top:6px">暂无任务</div></div>`;
     ts.forEach(t=>{
       const m=getMember(t.dev);
-      html+=`<div class="task-card" onclick="cycleStatus(${t.id})">
+      html+=`<div class="task-card" onclick="openEditTask(${t.id})">
         <div class="tc-title">${t.name}</div>
-        <div class="tc-meta"><span class="pill ${PC[t.priority]}">${PL[t.priority]}优</span>
-          <div class="avatar av-sm" style="${avatarStyle(m)}" title="${m.name}">${m.init}</div></div>
+        <div class="tc-meta">
+          <span class="pill ${PC[t.priority]}" onclick="event.stopPropagation();cycleStatus(${t.id})" title="点击推进状态" style="cursor:pointer">${PL[t.priority]}优 · ${SL[t.status]}</span>
+          <div class="avatar av-sm" style="${avatarStyle(m)}" title="${m.name}">${m.init}</div>
+        </div>
         <div class="tc-footer"><span class="tc-project"><i class="ti ti-folder" style="font-size:11px"></i> ${projName(t.project)}</span><span class="tc-date">${t.date}</span></div>
       </div>`;
     });
@@ -576,8 +580,9 @@ function renderGantt(){
         <div class="g-task-name"><span class="g-task-id">#${t.id}</span><span class="g-task-title" title="${t.name}">${t.name}</span></div>
         <div class="g-cells" style="grid-column:2/-1">
           <div class="g-cell-bg">${Array(TOTAL_WEEKS).fill('<div class="g-cell"></div>').join('')}</div>
-          <div class="g-bar" style="left:calc(${pct}% + 2px);width:calc(${w}% - 4px);${barStyle}"
-            onmouseenter="showTip(event,${t.id})" onmouseleave="hideTip()">
+          <div class="g-bar" style="left:calc(${pct}% + 2px);width:calc(${w}% - 4px);${barStyle};cursor:pointer"
+            onmouseenter="showTip(event,${t.id})" onmouseleave="hideTip()"
+            onclick="openEditTask(${t.id})">
             ${t.dur>=2?t.name:''}
           </div>
         </div>
@@ -732,22 +737,94 @@ function showTip(e,id){
 function hideTip(){document.getElementById('tt').style.display='none';}
 
 /* ---- TASK MODAL ---- */
+let editingTaskId = null;
+
 function populateProjSelect(){
   const sel=document.getElementById('m-proj');
   sel.innerHTML=projects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
 }
-function openModal(){document.getElementById('overlay').classList.add('open');const d=new Date();d.setDate(d.getDate()+14);document.getElementById('m-date').value=d.toISOString().split('T')[0];populateDevSelect();populateProjSelect();}
-function closeModal(){document.getElementById('overlay').classList.remove('open');}
-async function addTask(){
+function openModal(){
+  editingTaskId=null;
+  document.getElementById('task-modal-title').textContent='新建任务';
+  document.getElementById('task-save-btn').textContent='创建任务';
+  document.getElementById('task-del-btn').style.display='none';
+  document.getElementById('m-name').value='';
+  document.getElementById('m-dep').value='';
+  document.getElementById('m-note').value='';
+  document.getElementById('m-start').value=1;
+  document.getElementById('m-dur').value=2;
+  document.getElementById('m-status').value='todo';
+  const d=new Date();d.setDate(d.getDate()+14);
+  document.getElementById('m-date').value=d.toISOString().split('T')[0];
+  populateDevSelect();populateProjSelect();
+  document.getElementById('overlay').classList.add('open');
+}
+function openEditTask(id){
+  const t=tasks.find(x=>x.id===id); if(!t) return;
+  editingTaskId=id;
+  document.getElementById('task-modal-title').textContent='编辑任务';
+  document.getElementById('task-save-btn').textContent='保存更改';
+  document.getElementById('task-del-btn').style.display='flex';
+  populateDevSelect();populateProjSelect();
+  document.getElementById('m-name').value=t.name;
+  document.getElementById('m-proj').value=t.project;
+  document.getElementById('m-dev').value=t.dev;
+  document.getElementById('m-pri').value=t.priority;
+  document.getElementById('m-status').value=t.status;
+  document.getElementById('m-start').value=t.start;
+  document.getElementById('m-dur').value=t.dur;
+  document.getElementById('m-date').value=t.date||'';
+  document.getElementById('m-dep').value=(t.deps||[]).join(', ');
+  document.getElementById('m-note').value=t.note||'';
+  document.getElementById('overlay').classList.add('open');
+}
+function closeModal(){document.getElementById('overlay').classList.remove('open');editingTaskId=null;}
+
+async function saveTask(){
   const name=document.getElementById('m-name').value.trim(); if(!name){document.getElementById('m-name').focus();return;}
   const depRaw=document.getElementById('m-dep').value.trim();
   const deps=depRaw?depRaw.split(',').map(s=>parseInt(s.trim())).filter(n=>!isNaN(n)):[];
-  const body={name,project:document.getElementById('m-proj').value,dev:document.getElementById('m-dev').value,start_week:parseInt(document.getElementById('m-start').value)||1,duration:parseInt(document.getElementById('m-dur').value)||2,status:'todo',priority:document.getElementById('m-pri').value,deps,date:document.getElementById('m-date').value||'',note:document.getElementById('m-note').value};
-  document.getElementById('m-name').value='';document.getElementById('m-dep').value='';document.getElementById('m-note').value='';
+  const body={
+    name,
+    project:document.getElementById('m-proj').value,
+    dev:document.getElementById('m-dev').value,
+    start_week:parseInt(document.getElementById('m-start').value)||1,
+    duration:parseInt(document.getElementById('m-dur').value)||2,
+    status:document.getElementById('m-status').value,
+    priority:document.getElementById('m-pri').value,
+    deps,
+    date:document.getElementById('m-date').value||'',
+    note:document.getElementById('m-note').value
+  };
   closeModal();
-  try { const rows=await dbPost('tasks',body); tasks.push(taskFromDB(rows[0])); render(); showToast('任务已创建'); }
-  catch(e){ showToast('创建失败：'+e.message,false); }
+  try {
+    if(editingTaskId){
+      await dbPatch('tasks',editingTaskId,body);
+      const t=tasks.find(x=>x.id===editingTaskId);
+      if(t){ Object.assign(t,{name:body.name,project:body.project,dev:body.dev,start:body.start_week,dur:body.duration,status:body.status,priority:body.priority,deps:body.deps,date:body.date,note:body.note}); }
+      showToast('任务已更新');
+    } else {
+      const rows=await dbPost('tasks',body);
+      tasks.push(taskFromDB(rows[0]));
+      showToast('任务已创建');
+    }
+    render();
+  } catch(e){ showToast('保存失败：'+e.message,false); await loadAll(); }
 }
+
+async function deleteTask(){
+  if(!editingTaskId) return;
+  const t=tasks.find(x=>x.id===editingTaskId);
+  if(!confirm(`确认删除任务「${t?.name}」？此操作无法撤销。`)) return;
+  closeModal();
+  try {
+    await dbDel('tasks',editingTaskId);
+    tasks=tasks.filter(x=>x.id!==editingTaskId);
+    showToast('任务已删除');
+    render();
+  } catch(e){ showToast('删除失败：'+e.message,false); }
+}
+
 document.getElementById('overlay').addEventListener('click',e=>{if(e.target===document.getElementById('overlay'))closeModal();});
 
 /* ---- MEMBER MODAL ---- */
