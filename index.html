@@ -377,17 +377,18 @@ let tasks=[], members=[], projects=[];
 
 // ─── Supabase API helpers ───────────────────────
 async function sb(method, table, body, id){
-  const url = id
+  const url = id !== undefined
     ? `${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`
     : `${SUPABASE_URL}/rest/v1/${table}`;
   const headers = {
     'apikey': SUPABASE_KEY,
     'Authorization': 'Bearer ' + SUPABASE_KEY,
     'Content-Type': 'application/json',
-    'Prefer': method==='POST' ? 'return=representation' : 'return=representation'
+    'Prefer': method==='DELETE' ? 'return=minimal' : 'return=representation'
   };
   const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
   if(!res.ok){ const e=await res.text(); throw new Error(e); }
+  if(method==='DELETE') return [];
   const text = await res.text();
   return text ? JSON.parse(text) : [];
 }
